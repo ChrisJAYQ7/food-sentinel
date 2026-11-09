@@ -262,6 +262,7 @@ nav.onglets svg{width:24px;height:24px}
       <span class="sur">Historique du jour</span>
       <h1 class="titre" id="t-jour">Aujourd'hui</h1>
       <div class="grille" id="jourChiffres" style="grid-template-columns:repeat(3,minmax(0,1fr))"></div>
+      <div style="margin:12px 0 16px 0"><button class="btn btn-danger large" id="btnViderAujourdhui" style="width:100%;padding:12px;font-size:15px;font-weight:700">🗑️ Tout effacer (vider l'historique du jour)</button></div>
       <div id="jourListe" style="display:flex;flex-direction:column;gap:16px"></div>
     </section>
 
@@ -684,14 +685,16 @@ function etiquettes(ana) {
   PACK.analyses.forEach(function (a) { if (ana && ana[a.col] > 0) h += '<span class="etiq lab" style="--c:' + couleurLabo(a.labo) + '">' + esc(a.nom.length > 16 ? a.nom.slice(0, 14) + '…' : a.nom) + ' ' + ana[a.col] + '</span>'; });
   return h;
 }
-function modifiable(p) { return PACK && p.pack === PACK.id && (!p.feuille || p.feuille === PACK.feuille); }
+function modifiable(p) { return true; }
 document.addEventListener('click', function (ev) {
   var b = ev.target.closest('[data-edit]');
   if (!b) return;
   var p = PRODUITS.filter(function (x) { return x.id === b.getAttribute('data-edit'); })[0];
   if (!p) return;
-  if (!modifiable(p)) { toast('Ce produit appartient à un autre planning : affichez-le depuis l\'accueil pour le modifier.', 4000); return; }
-  if (norm(p.magasin) !== norm(MAG)) { MAG = p.magasin; kvEcrire('magasin', MAG); }
+  if (PACK && p.pack !== PACK.id) {
+    toast('Produit d\'un autre pack ou test : vous pouvez le consulter ou le supprimer.', 4000);
+  }
+  if (p.magasin && (!MAG || norm(p.magasin) !== norm(MAG))) { MAG = p.magasin; kvEcrire('magasin', MAG); }
   ouvrirProduit(p, null);
 });
 $('btnSansCode').addEventListener('click', function () { ouvrirProduit(null, ''); });
@@ -1421,7 +1424,7 @@ function supprimerFiche() {
   effacerProduit(EDIT).then(function () {
     (p ? p.photos : []).forEach(effacerPhoto);
     PRODUITS = PRODUITS.filter(function (x) { return x.id !== EDIT; });
-    FORM = null; SIG = ''; kvEcrire('brouillon', null); toast('Produit supprimé'); aller('magasin');
+    FORM = null; SIG = ''; kvEcrire('brouillon', null); toast('Produit supprimé ✓'); aller(ecranActuel() === 'jour' || !MAG ? 'jour' : 'magasin');
   });
 }
 $('btnProdRetour').addEventListener('click', function () {
@@ -1721,6 +1724,30 @@ document.addEventListener('click', function (ev) {
   dessinerRecapMag();
 });
 
+
+document.addEventListener('click', function (ev) {
+  var b = ev.target.closest('[data-suppr-direct]');
+  if (!b) return;
+  ev.stopPropagation();
+  var id = b.getAttribute('data-suppr-direct');
+  var p = PRODUITS.filter(function (x) { return x.id === id; })[0];
+  if (!p) return;
+  modale('Supprimer ce produit ?', '<p>Voulez-vous supprimer <b>' + esc(p.denom || 'ce produit') + '</b>' + (p.exporte ? ' (marqué comme envoyé)' : '') + ' ?</p><p>Le produit et ses photos seront définitivement retirés du téléphone.</p>', [
+    { t: 'Supprimer', cls: 'btn-danger', f: function () {
+        effacerProduit(id).then(function () {
+          (p.photos || []).forEach(effacerPhoto);
+          PRODUITS = PRODUITS.filter(function (x) { return x.id !== id; });
+          toast('Produit supprimé ✓');
+          dessinerJour();
+          if (ecranActuel() === 'retour') dessinerRetour();
+          if (ecranActuel() === 'magasin') dessinerMagasin();
+        });
+      }
+    },
+    { t: 'Annuler', cls: 'btn-contour' }
+  ]);
+});
+
 /* ======================= retour vers Excel ======================= */
 function dessinerRetour() {
   var l = produitsDuPack(true), ph = 0, ac = 0, nouv = 0;
@@ -1740,8 +1767,9 @@ $('btnCaddieVider').addEventListener('click', function () { CADDIE = {}; kvEcrir
 function ligneProduit(p, avecHeure) {
   var ok = modifiable(p), sEch = 0; Object.keys(p.ana || {}).forEach(function (k) { sEch += p.ana[k]; });
   var h = new Date(p.t), hh = ('0' + h.getHours()).slice(-2) + ':' + ('0' + h.getMinutes()).slice(-2);
-  return '<button class="ligne-prod' + (p.statut === 'completer' ? ' completer' : '') + '"' + (ok ? ' data-edit="' + p.id + '"' : ' style="cursor:default"') + '><span class="entre"><span class="rangee" style="gap:8px;min-width:0">' + (avecHeure ? '<span class="heure">' + hh + '</span>' : '') + '<b style="overflow:hidden;text-overflow:ellipsis">' + esc(p.denom || 'Produit sans nom') + '</b></span><span class="muet" style="white-space:nowrap">× ' + (p.qte || 0) + '</span></span>' +
-    '<span class="puces" style="gap:6px">' + (ok ? etiquettes(p.ana) : '<span class="pastille p-gris">' + sEch + ' échantillon(s) · ' + esc(String(p.feuille || '').split(' - ')[0]) + '</span>') + (p.statut === 'completer' ? '<span class="pastille p-ambre">à compléter au bureau</span>' : '') + (p.exporte ? '<span class="pastille p-vert">envoyé</span>' : '') + (!p.qte ? '<span class="pastille p-ambre">qté 0</span>' : '') + (p.alerteQte ? '<span class="pastille p-ambre">qté &lt; minimum</span>' : '') + (p.force && p.force.length ? '<span class="pastille p-ambre">analyse forcée</span>' : '') + '<span class="muet" style="font-size:12px">' + esc(p.marque) + (p.photos.length ? ' · ' + p.photos.length + ' photo(s)' : '') + '</span></span></button>';
+  var supprBtn = avecHeure ? '<button class="case" data-suppr-direct="' + p.id + '" title="Supprimer ce produit" style="width:36px;height:36px;min-width:36px;border-radius:8px;background:var(--fond2,#f0f0f0);border:1px solid var(--ligne,#ddd);color:var(--rouge,#c00);font-size:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-left:8px" aria-label="Supprimer">🗑️</button>' : '';
+  return '<div style="display:flex;align-items:center;width:100%"><button class="ligne-prod' + (p.statut === 'completer' ? ' completer' : '') + '" data-edit="' + p.id + '" style="flex:1"><span class="entre"><span class="rangee" style="gap:8px;min-width:0">' + (avecHeure ? '<span class="heure">' + hh + '</span>' : '') + '<b style="overflow:hidden;text-overflow:ellipsis">' + esc(p.denom || 'Produit sans nom') + '</b></span><span class="muet" style="white-space:nowrap">× ' + (p.qte || 0) + '</span></span>' +
+    '<span class="puces" style="gap:6px">' + etiquettes(p.ana) + (p.statut === 'completer' ? '<span class="pastille p-ambre">à compléter</span>' : '') + (p.exporte ? '<span class="pastille p-vert">envoyé</span>' : '') + (!p.qte ? '<span class="pastille p-ambre">qté 0</span>' : '') + (p.alerteQte ? '<span class="pastille p-ambre">qté &lt; min</span>' : '') + (p.force && p.force.length ? '<span class="pastille p-ambre">forcée</span>' : '') + '<span class="muet" style="font-size:12px">' + esc(p.marque) + (p.photos.length ? ' · ' + p.photos.length + ' photo(s)' : '') + '</span></span></button>' + supprBtn + '</div>';
 }
 function grouperParMagasin(l) {
   var g = [], ix = {};
@@ -1845,6 +1873,37 @@ var DERNIER = null;
 $('btnPartager').addEventListener('click', function () { if (DERNIER) navigator.share({ files: [DERNIER], title: DERNIER.name }).catch(function () {}); });
 $('btnExport').addEventListener('click', function () { controleAvantEnvoi(function () { exporter(true); }); });
 $('btnExportTsv').addEventListener('click', function () { controleAvantEnvoi(function () { exporter(false); }); });
+
+$('btnViderAujourdhui').addEventListener('click', function () {
+  var l = duJour();
+  if (!l.length) { toast('Aucun prélèvement aujourd\'hui à effacer.'); return; }
+  modale('Effacer l\'historique du jour ?',
+    '<p><b>' + l.length + ' produit(s)</b> prélevés aujourd\'hui seront supprimés du téléphone et du planning.</p><p style="color:var(--err)">Cette action est immédiate.</p>',
+    [
+      {
+        t: '🗑️ Oui, tout effacer (' + l.length + ')',
+        cls: 'btn-danger',
+        f: function () {
+          Promise.all(l.map(function (p) {
+            return effacerProduit(p.id).then(function () {
+              return Promise.all((p.photos || []).map(effacerPhoto));
+            });
+          })).then(function () {
+            var ids = l.map(function (p) { return p.id; });
+            PRODUITS = PRODUITS.filter(function (p) { return ids.indexOf(p.id) < 0; });
+            toast('Historique du jour effacé (' + l.length + ' produit(s)).');
+            dessinerJour();
+            majPastilles();
+            if (ecranActuel() === 'retour') dessinerRetour();
+            if (ecranActuel() === 'magasin') dessinerMagasin();
+          });
+        }
+      },
+      { t: 'Annuler', cls: 'btn-contour' }
+    ]
+  );
+});
+
 $('btnVider').addEventListener('click', function () {
   var l = PRODUITS.filter(function (p) { return p.exporte; });
   if (!l.length) { toast('Aucun produit déjà envoyé à vider.'); return; }
@@ -1902,7 +1961,22 @@ window.addEventListener('resize', navCote);
 appliquerTheme(themeActuel());
 ouvrirBase().then(function () { return Promise.all([kvLire('pack'), tousProduits(), kvLire('magasin'), kvLire('planning'), kvLire('positions'), kvLire('gps'), kvLire('brouillon'), kvLire('caddie'), kvLire('appris')]); }).then(function (r) {
   if (r[0] && r[0].analyses && r[0].analyses.length) installerPack(r[0], +r[3] || 0);
-  PRODUITS = r[1] || []; MAG = r[2] || ''; POS = r[4] || {}; GPS_OK = !!r[5]; CADDIE = r[7] || {}; APPRIS = r[8] || { m: {}, d: {}, ces: [] }; APPRIS.m = APPRIS.m || {}; APPRIS.d = APPRIS.d || {}; APPRIS.ces = APPRIS.ces || [];
+    PRODUITS = r[1] || [];
+  // Nettoyage automatique au passage d'un nouveau jour : repart propre chaque jour
+  try {
+    var _debutJour = new Date(); _debutJour.setHours(0, 0, 0, 0);
+    var _perimes = PRODUITS.filter(function (p) { return p.t < _debutJour.getTime(); });
+    if (_perimes.length > 0) {
+      console.log('Purge automatique de ' + _perimes.length + ' prélèvement(s) des jours précédents.');
+      Promise.all(_perimes.map(function (p) {
+        return effacerProduit(p.id).then(function () { return Promise.all((p.photos || []).map(effacerPhoto)); });
+      })).then(function () {
+        var _ids = _perimes.map(function (p) { return p.id; });
+        PRODUITS = PRODUITS.filter(function (p) { return _ids.indexOf(p.id) < 0; });
+        majPastilles();
+      });
+    }
+  } catch (errPurge) { console.warn('Erreur purge:', errPurge); } MAG = r[2] || ''; POS = r[4] || {}; GPS_OK = !!r[5]; CADDIE = r[7] || {}; APPRIS = r[8] || { m: {}, d: {}, ces: [] }; APPRIS.m = APPRIS.m || {}; APPRIS.d = APPRIS.d || {}; APPRIS.ces = APPRIS.ces || [];
   if (PACK) setTimeout(chargerFx, 1500);
   navCote(); etatReseau(); try { history.replaceState({ e: 'accueil' }, ''); } catch (x) {} aller('accueil', true);
   var b = r[6];

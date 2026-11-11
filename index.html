@@ -300,7 +300,7 @@ nav.onglets svg{width:24px;height:24px}
 
 <script>
 'use strict';
-var APP_VERSION = '1.7.1';
+var APP_VERSION = '1.8.0';
 /* ======================= stockage (IndexedDB) ======================= */
 var DB = null;
 function ouvrirBase() {
@@ -1399,6 +1399,9 @@ function enregistrer(suite, qteVue) {
   if (!v.court) FORM.qteOk = '';
   if (!FORM.denom || !FORM.marque) FORM.statut = 'completer';
   FORM.t = FORM.t || Date.now(); FORM.exporte = false;
+  if (estBio(FORM.denom) && FORM.fx && FORM.fx.indexOf('F21.') < 0) {
+    FORM.fx = FORM.fx + (FORM.fx.indexOf('#') >= 0 ? '$F21.A07SE' : '#F21.A07SE');
+  }
   var p = JSON.parse(JSON.stringify(FORM)); delete p.qteAuto; delete p.matOuvert;
   var orig = EDIT ? PRODUITS.filter(function (x) { return x.id === EDIT; })[0] : null;
   ecrireProduit(p).then(function () {
@@ -1439,7 +1442,7 @@ function chargerFx() {
   if (!chargerFx.p) chargerFx.p = fetch('fx.json').then(function (r) { return r.json(); }).then(function (j) { FX = j; if (FORM && surFiche()) dessinerAnalyses(); return j; }).catch(function () { FX = { p: {}, n: {} }; return FX; });
   return chargerFx.p;
 }
-function ancetres(code) { var l = [], c = String(code || '').toUpperCase(), n = 0; while (c && n < 14) { l.push(c); c = FX && FX.p ? FX.p[c] : null; n++; } return l; }
+function ancetres(code) { var l = [], c = String(code || '').split('#')[0].trim().toUpperCase(), n = 0; while (c && n < 14) { l.push(c); c = FX && FX.p ? FX.p[c] : null; n++; } return l; }
 function nomFx(code) { if (!FX || !code) return ''; var a = ancetres(code); for (var i = 0; i < a.length; i++) if (FX.n[a[i]]) return FX.n[a[i]]; return ''; }
 
 /* mots des aliments en plusieurs langues (français, anglais, allemand, luxembourgeois, portugais, néerlandais, italien, espagnol)
@@ -1962,10 +1965,10 @@ appliquerTheme(themeActuel());
 ouvrirBase().then(function () { return Promise.all([kvLire('pack'), tousProduits(), kvLire('magasin'), kvLire('planning'), kvLire('positions'), kvLire('gps'), kvLire('brouillon'), kvLire('caddie'), kvLire('appris')]); }).then(function (r) {
   if (r[0] && r[0].analyses && r[0].analyses.length) installerPack(r[0], +r[3] || 0);
     PRODUITS = r[1] || [];
-  // Nettoyage automatique au passage d'un nouveau jour : repart propre chaque jour
+  // Nettoyage automatique au passage d'un nouveau jour : supprime uniquement les prélèvements déjà exportés des jours précédents
   try {
     var _debutJour = new Date(); _debutJour.setHours(0, 0, 0, 0);
-    var _perimes = PRODUITS.filter(function (p) { return p.t < _debutJour.getTime(); });
+    var _perimes = PRODUITS.filter(function (p) { return p.t < _debutJour.getTime() && p.exporte; });
     if (_perimes.length > 0) {
       console.log('Purge automatique de ' + _perimes.length + ' prélèvement(s) des jours précédents.');
       Promise.all(_perimes.map(function (p) {
